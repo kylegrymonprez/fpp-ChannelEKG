@@ -1,5 +1,3 @@
-<script type="text/javascript" src="js/d3.v7.min.js"></script>
-
 <style>
 #ekgLiveGrid {
 	display: flex;
@@ -418,28 +416,57 @@ function ekgPoll() {
 	});
 }
 
+var SVG_NS = 'http://www.w3.org/2000/svg';
+
+// Maps v from [d0,d1] to [r0,r1] - the one piece of d3-scaleLinear this chart
+// needs. Not pulling in d3 itself: FPP core doesn't bundle it (js/d3.v7.min.js
+// 404s on a stock install), so relying on it silently broke every chart here.
+function ekgLinearScale(domain, range) {
+	var d0 = domain[0], d1 = domain[1], r0 = range[0], r1 = range[1];
+	return function (v) {
+		if (d1 === d0) return r0;
+		return r0 + (v - d0) / (d1 - d0) * (r1 - r0);
+	};
+}
+
+function ekgLinePath(xScale, yScale, hist) {
+	var d = '';
+	for (var i = 0; i < hist.length; i++) {
+		d += (i === 0 ? 'M' : 'L') + xScale(hist[i][0]).toFixed(2) + ',' + yScale(hist[i][1]).toFixed(2) + ' ';
+	}
+	return d;
+}
+
 function ekgDrawChart(channel, hist, now) {
-	var svg = d3.select('#ekgSvg_' + channel);
-	if (svg.empty()) return;
-	var x = d3.scaleLinear().domain([now - EKG_HISTORY_MS, now]).range([0, 200]);
-	var y = d3.scaleLinear().domain([0, 255]).range([65, 2]);
-	var line = d3.line()
-		.x(function (d) { return x(d[0]); })
-		.y(function (d) { return y(d[1]); });
+	var svg = document.getElementById('ekgSvg_' + channel);
+	if (!svg) return;
+	var x = ekgLinearScale([now - EKG_HISTORY_MS, now], [0, 200]);
+	var y = ekgLinearScale([0, 255], [65, 2]);
 
-	var axis = svg.selectAll('line.ekgAxis').data([0, 128, 255]);
-	axis.enter().append('line').attr('class', 'ekgAxis')
-		.merge(axis)
-		.attr('x1', 0).attr('x2', 200)
-		.attr('y1', function (d) { return y(d); })
-		.attr('y2', function (d) { return y(d); });
-	axis.exit().remove();
+	// The y-domain is fixed (0-255), so the three reference lines never move -
+	// built once per card and reused rather than redrawn every poll.
+	if (!svg.querySelector('.ekgAxisGroup')) {
+		var axisGroup = document.createElementNS(SVG_NS, 'g');
+		axisGroup.setAttribute('class', 'ekgAxisGroup');
+		[0, 128, 255].forEach(function (v) {
+			var line = document.createElementNS(SVG_NS, 'line');
+			line.setAttribute('class', 'ekgAxis');
+			line.setAttribute('x1', 0);
+			line.setAttribute('x2', 200);
+			line.setAttribute('y1', y(v));
+			line.setAttribute('y2', y(v));
+			axisGroup.appendChild(line);
+		});
+		svg.appendChild(axisGroup);
+	}
 
-	var path = svg.selectAll('path.ekgLine').data([hist]);
-	path.enter().append('path').attr('class', 'ekgLine')
-		.merge(path)
-		.attr('d', line);
-	path.exit().remove();
+	var path = svg.querySelector('path.ekgLine');
+	if (!path) {
+		path = document.createElementNS(SVG_NS, 'path');
+		path.setAttribute('class', 'ekgLine');
+		svg.appendChild(path);
+	}
+	path.setAttribute('d', ekgLinePath(x, y, hist));
 }
 
 $(document).ready(function () {

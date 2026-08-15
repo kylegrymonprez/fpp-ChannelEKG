@@ -33,8 +33,12 @@ cd fpp-ChannelEKG
 scripts/fpp_install.sh
 ```
 
-The plugin supports live load/unload, so no `fppd` restart is required after
-install, uninstall, or upgrade.
+The Makefile detects which plugin HTTP API the FPP tree at `SRCDIR` provides
+and builds against that one: FPP 10.0-beta5+'s `registerApis()`/
+`FPPPlugins::registerPluginApi()` (supports live install/uninstall/upgrade
+with no `fppd` restart), or the older 8.x/9.x
+`registerApis(httpserver::webserver*)` (needs an `fppd` restart after
+install, uninstall, or upgrade).
 
 ## Notes
 
