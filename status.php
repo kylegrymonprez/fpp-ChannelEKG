@@ -79,8 +79,7 @@
 
 	<div class="row"><div class="col-md">
 		Pick up to 16 raw output channels to monitor. Choose a configured model to add its first
-		channels directly, or enter a raw channel number manually. Click "Save &amp; Apply" to
-		start monitoring the selected channels below.
+		channels directly, or enter a raw channel number manually. Changes apply immediately.
 	</div></div>
 
 	<div class="row align-items-center" style="margin-top:8px;">
@@ -113,8 +112,7 @@
 	</div>
 
 	<div class="row"><div class="col-auto">
-		<button class="btn btn-success" onclick="ekgSave()">Save &amp; Apply</button>
-		<span id="ekgSaveStatus" style="margin-left:10px;"></span>
+		<span id="ekgSaveStatus"></span>
 	</div></div>
 
 </div>
@@ -218,7 +216,7 @@ function ekgAddModelChannels() {
 		ekgPicked.push({ channel: channel, label: ekgSelectedModel.Name + ' Ch' + (i + 1) });
 		added++;
 	}
-	ekgRenderLiveGrid();
+	ekgSave();
 	if (added < toAdd) {
 		alert('Added ' + added + ' of ' + toAdd + ' channels - the 16 channel monitoring limit was reached or some were already in the list.');
 	}
@@ -226,7 +224,7 @@ function ekgAddModelChannels() {
 
 function ekgRemoveAllChannels() {
 	ekgPicked = [];
-	ekgRenderLiveGrid();
+	ekgSave();
 }
 
 function ekgAddManualChannel() {
@@ -249,13 +247,13 @@ function ekgAddManualChannel() {
 	ekgPicked.push({ channel: raw, label: label });
 	document.getElementById('ekgManualChannel').value = '';
 	document.getElementById('ekgLabel').value = '';
-	ekgRenderLiveGrid();
+	ekgSave();
 }
 
 // Removes a channel by its channel number (unique) from the live grid/staged list.
 function ekgRemoveChannel(channel) {
 	ekgPicked = ekgPicked.filter(function (c) { return c.channel !== channel; });
-	ekgRenderLiveGrid();
+	ekgSave();
 }
 
 function ekgSave() {
