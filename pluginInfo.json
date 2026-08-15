@@ -1,0 +1,19 @@
+{
+	"repoName": "fpp-ChannelEKG",
+	"name": "Channel EKG",
+	"author": "Kyle Grymonprez (kylegrymonprez)",
+	"description": "Monitor the live raw values FPP is sending to up to 16 channels, with a 30 second scrolling line graph per channel.",
+	"homeURL": "https://github.com/kylegrymonprez/fpp-ChannelEKG",
+	"srcURL": "https://github.com/kylegrymonprez/fpp-ChannelEKG.git",
+	"bugURL": "https://github.com/kylegrymonprez/fpp-ChannelEKG/issues",
+	"iconURL": "https://raw.githubusercontent.com/kylegrymonprez/fpp-ChannelEKG/master/icon.png",
+	"allowUpdates": 1,
+	"versions": [
+		{
+			"minFPPVersion": "10.0",
+			"maxFPPVersion": "0",
+			"branch": "master",
+			"sha": ""
+		}
+	]
+}

@@ -1,0 +1,91 @@
+{
+    "paths": {
+        "/ChannelEKG/config": {
+            "get": {
+                "summary": "Get the currently monitored channels",
+                "description": "Returns the list of channels currently being monitored, up to 16 entries.",
+                "responses": {
+                    "200": {
+                        "description": "Array of monitored channels",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "channel": { "type": "integer" },
+                                            "label": { "type": "string" }
+                                        }
+                                    }
+                                },
+                                "example": [{ "channel": 123, "label": "Mega Tree - Pixel 5 R" }]
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Set the monitored channels",
+                "description": "Replaces the list of monitored channels (max 16) and persists it to disk.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "channel": { "type": "integer" },
+                                        "label": { "type": "string" }
+                                    }
+                                },
+                                "maxItems": 16
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "The new list of monitored channels, as saved" },
+                    "400": { "description": "Invalid body, too many channels, or a channel number out of range" }
+                }
+            }
+        },
+        "/ChannelEKG/data": {
+            "get": {
+                "summary": "Get live channel samples",
+                "description": "Returns the current value of each monitored channel plus any samples newer than 'since'. Pass since=0 (or omit it) for the full ~30 second history; pass the 'now' value from the previous response to fetch only new samples.",
+                "parameters": [
+                    {
+                        "name": "since",
+                        "in": "query",
+                        "required": false,
+                        "description": "Millisecond timestamp; only samples strictly newer than this are returned",
+                        "schema": { "type": "integer" }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Current values and new samples per channel",
+                        "content": {
+                            "application/json": {
+                                "example": {
+                                    "now": 1699999999999,
+                                    "channels": [
+                                        {
+                                            "channel": 123,
+                                            "label": "Mega Tree - Pixel 5 R",
+                                            "value": 200,
+                                            "samples": [[1699999999000, 180], [1699999999050, 200]]
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
