@@ -74,7 +74,6 @@
 </style>
 
 <div id="global" class="settings">
-<h2>Channel EKG</h2>
 <div class="container-fluid settingsTable settingsGroupTable">
 
 	<div class="row"><div class="col-md">
