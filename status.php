@@ -103,7 +103,7 @@
 			Channel # <input type="number" id="ekgManualChannel" class="form-control form-control-sm d-inline-block" min="1" style="width:100px;">
 		</div>
 		<div class="col-auto">
-			Label <input type="text" id="ekgLabel" class="form-control form-control-sm" placeholder="optional label" style="width:180px;">
+			Label <input type="text" id="ekgLabel" class="form-control form-control-sm d-inline-block" placeholder="optional label" style="width:180px;">
 		</div>
 		<div class="col-auto">
 			<button class="btn btn-outline-primary btn-sm" onclick="ekgAddManualChannel()">Add</button>
