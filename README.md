@@ -35,12 +35,13 @@ cd fpp-ChannelEKG
 scripts/fpp_install.sh
 ```
 
-The Makefile detects which plugin HTTP API the FPP tree at `SRCDIR` provides
-and builds against that one: FPP 10.0-beta5+'s `registerApis()`/
-`FPPPlugins::registerPluginApi()` (supports live install/uninstall/upgrade
-with no `fppd` restart), or the older 8.x/9.x
-`registerApis(httpserver::webserver*)` (needs an `fppd` restart after
-install, uninstall, or upgrade).
+This branch (`main`) targets FPP 10.0-beta5+'s plugin HTTP API (Plugin API 6):
+no-arg `registerApis()`/`unregisterApis()`, routed through
+`FPPPlugins::registerPluginApi()`/`unregisterPluginApi()` in `fpphttp.h`, with
+a `shutdown()`/`FPP_PLUGIN_SUPPORTS_UNLOAD()` hot-unload contract - so install,
+uninstall, and upgrade all take effect live with no `fppd` restart. For FPP
+8.x/9.x, use the `fpp9` branch instead, which targets the older
+libhttpserver-based API and does need a restart after install/uninstall/upgrade.
 
 ## Notes
 

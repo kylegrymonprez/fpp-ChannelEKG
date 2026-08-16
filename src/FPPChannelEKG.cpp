@@ -8,25 +8,11 @@
 #include <vector>
 
 #include "common.h"
+#include "fpphttp.h"
 #include "log.h"
 #include "Plugin.h"
 #include "Plugins.h"
 #include "settings.h"
-
-// CEKG_HAVE_NOARG_REGISTER_APIS is defined by the Makefile when the FPP tree
-// being built against has Plugin API 6 (first shipped in FPP 10.0-beta5): a
-// no-arg APIProviderPlugin::registerApis()/unregisterApis(), routed through
-// FPPPlugins::registerPluginApi()/unregisterPluginApi() in fpphttp.h, plus a
-// shutdown()/FPP_PLUGIN_SUPPORTS_UNLOAD() hot-unload contract. Otherwise this
-// targets the older 8.x/9.x libhttpserver API, where
-// APIProviderPlugin::registerApis(httpserver::webserver*) hands the plugin
-// the shared webserver directly and there is no hot-unload - an fppd restart
-// is needed after install/uninstall/upgrade.
-#ifdef CEKG_HAVE_NOARG_REGISTER_APIS
-#include "fpphttp.h"
-#else
-#include <httpserver.hpp>
-#endif
 
 namespace {
     constexpr size_t MAX_MONITORED_CHANNELS = 16;
@@ -35,7 +21,6 @@ namespace {
     // channel buffer at this size, so any 1-based channel within this bound is
     // safe to index into seqData regardless of what is actually configured.
     constexpr long MAX_CHANNEL_INDEX = 8192 * 1024;
-    constexpr char API_PATH[] = "/ChannelEKG";
     constexpr char CONFIG_PATH[] = "/ChannelEKG/config";
     constexpr char DATA_PATH[] = "/ChannelEKG/data";
 }
@@ -47,12 +32,7 @@ struct MonitoredChannel {
     uint8_t currentValue = 0;
 };
 
-class FPPChannelEKGPlugin : public FPPPlugins::Plugin, public FPPPlugins::ChannelDataPlugin, public FPPPlugins::APIProviderPlugin
-#ifndef CEKG_HAVE_NOARG_REGISTER_APIS
-    ,
-                             public httpserver::http_resource
-#endif
-{
+class FPPChannelEKGPlugin : public FPPPlugins::Plugin, public FPPPlugins::ChannelDataPlugin, public FPPPlugins::APIProviderPlugin {
 public:
     FPPChannelEKGPlugin() : FPPPlugins::Plugin("fpp-ChannelEKG") {
         configLocation = FPP_DIR_CONFIG("/plugin.fpp-ChannelEKG.json");
@@ -60,13 +40,11 @@ public:
     }
     virtual ~FPPChannelEKGPlugin() {}
 
-#ifdef CEKG_HAVE_NOARG_REGISTER_APIS
     // Nothing async here: no threads, timers, commands, or event callbacks to
     // quiesce, so teardown is complete as soon as unregisterApis() returns.
     virtual std::function<bool()> shutdown() override {
         return nullptr;
     }
-#endif
 
     void loadConfig() {
         std::vector<MonitoredChannel> loaded;
@@ -169,8 +147,7 @@ public:
     }
 
     // Replaces `channels` from a config POST body. Returns an error message on
-    // failure (empty string on success), matching neither transport so both
-    // render_POST/registerPluginApi handlers can wrap it in their own response.
+    // failure (empty string on success).
     std::string applyConfigJson(const std::string& body) {
         Json::Value root;
         if (!LoadJsonFromString(body, root) || !root.isArray()) {
@@ -201,7 +178,6 @@ public:
         return "";
     }
 
-#ifdef CEKG_HAVE_NOARG_REGISTER_APIS
     void handleGetConfig(HttpCallback&& callback) {
         callback(makeStringResponse(SaveJsonToString(buildConfigJson()), 200, "application/json"));
     }
@@ -250,71 +226,18 @@ public:
         FPPPlugins::unregisterPluginApi(CONFIG_PATH);
         FPPPlugins::unregisterPluginApi(DATA_PATH);
     }
-#else
-    std::shared_ptr<httpserver::http_response> handleGetConfig() {
-        return std::shared_ptr<httpserver::http_response>(
-            new httpserver::string_response(SaveJsonToString(buildConfigJson()), 200, "application/json"));
-    }
-
-    std::shared_ptr<httpserver::http_response> handlePostConfig(const httpserver::http_request& req) {
-        std::string err = applyConfigJson(std::string(req.get_content()));
-        if (!err.empty()) {
-            return std::shared_ptr<httpserver::http_response>(new httpserver::string_response(err, 400, "application/json"));
-        }
-        return handleGetConfig();
-    }
-
-    std::shared_ptr<httpserver::http_response> handleGetData(const httpserver::http_request& req) {
-        long long since = 0;
-        std::string sinceArg(req.get_arg("since"));
-        if (!sinceArg.empty()) {
-            since = std::atoll(sinceArg.c_str());
-        }
-        return std::shared_ptr<httpserver::http_response>(
-            new httpserver::string_response(SaveJsonToString(buildDataJson(since)), 200, "application/json"));
-    }
-
-    HTTP_RESPONSE_CONST std::shared_ptr<httpserver::http_response> render_GET(const httpserver::http_request& req) override {
-        const auto& pieces = req.get_path_pieces();
-        if (pieces.size() > 1 && pieces[1] == "config") {
-            return handleGetConfig();
-        }
-        if (pieces.size() > 1 && pieces[1] == "data") {
-            return handleGetData(req);
-        }
-        return std::shared_ptr<httpserver::http_response>(new httpserver::string_response("Not Found", 404));
-    }
-
-    HTTP_RESPONSE_CONST std::shared_ptr<httpserver::http_response> render_POST(const httpserver::http_request& req) override {
-        const auto& pieces = req.get_path_pieces();
-        if (pieces.size() > 1 && pieces[1] == "config") {
-            return handlePostConfig(req);
-        }
-        return std::shared_ptr<httpserver::http_response>(new httpserver::string_response("Not Found", 404));
-    }
-
-    virtual void registerApis(httpserver::webserver* m_ws) override {
-        m_ws->register_resource(API_PATH, this, true);
-    }
-
-    virtual void unregisterApis(httpserver::webserver* m_ws) override {
-        m_ws->unregister_resource(API_PATH);
-    }
-#endif
 
     std::string configLocation;
     std::mutex dataMutex;
     std::vector<MonitoredChannel> channels;
 };
 
-#ifdef CEKG_HAVE_NOARG_REGISTER_APIS
 // Safe to dlclose() on unload: no threads, no timers, no CurlManager requests,
 // no epoll descriptors, no Commands, no Events callbacks - routes go through
 // registerPluginApi()/unregisterPluginApi() only, so nothing outside this
 // library can still be holding a pointer into it once unregisterApis() and
 // shutdown() have returned.
 FPP_PLUGIN_SUPPORTS_UNLOAD()
-#endif
 
 extern "C" {
 FPPPlugins::Plugin* createPlugin() {
