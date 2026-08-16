@@ -6,13 +6,19 @@
 	"homeURL": "https://github.com/kylegrymonprez/fpp-ChannelEKG",
 	"srcURL": "https://github.com/kylegrymonprez/fpp-ChannelEKG.git",
 	"bugURL": "https://github.com/kylegrymonprez/fpp-ChannelEKG/issues",
-	"iconURL": "https://github.com/kylegrymonprez/fpp-ChannelEKG/blob/master/icon.png",
+	"iconURL": "https://raw.githubusercontent.com/kylegrymonprez/fpp-ChannelEKG/main/icon.png",
 	"allowUpdates": 1,
 	"versions": [
 		{
 			"minFPPVersion": "9.0",
+			"maxFPPVersion": "9.99",
+			"branch": "fpp9",
+			"sha": ""
+		},
+		{
+			"minFPPVersion": "10.0",
 			"maxFPPVersion": "0",
-			"branch": "master",
+			"branch": "main",
 			"sha": ""
 		}
 	]
