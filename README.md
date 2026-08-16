@@ -17,9 +17,11 @@ exposes that data over HTTP:
 - `GET /api/plugin-apis/ChannelEKG/data?since=<ms>` - current value per channel, plus samples newer than `since` (delta polling, not the full history each time)
 
 The web UI (`status.php`, under the Status menu as "Channel EKG") lets
-you pick channels either by choosing a configured model + pixel/color (reusing
-FPP's own `/api/models` endpoint) or by entering a raw channel number, then
-polls the `data` endpoint every 250ms and draws a live D3 chart per channel.
+you pick channels either by choosing a configured model (adds its first raw
+output channels sequentially from its start channel, reusing FPP's own
+`/api/models` endpoint - no pixel/color grouping) or by entering a raw channel
+number, then polls the `data` endpoint every 250ms and draws a live chart per
+channel with a small hand-rolled SVG renderer (no external JS dependency).
 
 ## Installing
 
@@ -44,5 +46,3 @@ install, uninstall, or upgrade).
 
 - Channel numbers are 1-based absolute output channels, matching what FPP's
   Testing page shows for a model.
-- `icon.png` is not included yet - add one before publishing to the plugin
-  catalog.
