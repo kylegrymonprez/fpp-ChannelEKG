@@ -8,6 +8,6 @@ cd $BASEDIR
 cd ..
 make "SRCDIR=${SRCDIR}"
 
-# No restartFlag: the plugin declares FPP_PLUGIN_SUPPORTS_UNLOAD and the Plugin
-# Manager asks fppd to load it as soon as this script finishes, so asking the
-# user to restart would interrupt a running show for nothing.
+# This branch targets FPP 8.x/9.x's libhttpserver plugin API, which has no
+# hot-unload contract - fppd needs an explicit restart to pick up a fresh
+# install, uninstall, or upgrade of this plugin.

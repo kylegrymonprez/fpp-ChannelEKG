@@ -30,17 +30,17 @@ install it through FPP's Plugin Manager once published):
 
 ```
 cd <fpp media dir>/plugins
-git clone https://github.com/kylegrymonprez/fpp-ChannelEKG.git
+git clone -b fpp9 https://github.com/kylegrymonprez/fpp-ChannelEKG.git
 cd fpp-ChannelEKG
 scripts/fpp_install.sh
 ```
 
-The Makefile detects which plugin HTTP API the FPP tree at `SRCDIR` provides
-and builds against that one: FPP 10.0-beta5+'s `registerApis()`/
-`FPPPlugins::registerPluginApi()` (supports live install/uninstall/upgrade
-with no `fppd` restart), or the older 8.x/9.x
-`registerApis(httpserver::webserver*)` (needs an `fppd` restart after
-install, uninstall, or upgrade).
+This branch targets FPP 8.x/9.x's libhttpserver-based plugin HTTP API
+(`registerApis(httpserver::webserver*)`). There's no hot-unload contract on
+that API, so an `fppd` restart is needed after install, uninstall, or
+upgrade. For FPP 10.0+, use the `main` branch instead, which targets the
+newer no-arg `registerApis()`/`FPPPlugins::registerPluginApi()` API and
+supports live install/uninstall/upgrade with no restart.
 
 ## Notes
 
