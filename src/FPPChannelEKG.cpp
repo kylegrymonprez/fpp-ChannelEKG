@@ -15,7 +15,10 @@
 #include "settings.h"
 
 namespace {
-    constexpr size_t MAX_MONITORED_CHANNELS = 16;
+    // FPP's own Display Testing > Channel Fader tab groups channels into tabs
+    // of 16; the status page mirrors that grouping, so this cap is sized in
+    // tabs (8 x 16) rather than being a single flat UI limit.
+    constexpr size_t MAX_MONITORED_CHANNELS = 128;
     constexpr long long HISTORY_MS = 30000;
     // Matches FPPD_MAX_CHANNELS (Sequence.h): FPP always allocates the output
     // channel buffer at this size, so any 1-based channel within this bound is
@@ -154,7 +157,7 @@ public:
             return "{\"error\":\"invalid JSON body, expected an array\"}";
         }
         if (root.size() > MAX_MONITORED_CHANNELS) {
-            return "{\"error\":\"too many channels, max 16\"}";
+            return "{\"error\":\"too many channels, max " + std::to_string(MAX_MONITORED_CHANNELS) + "\"}";
         }
         std::vector<MonitoredChannel> newChannels;
         for (const auto& entry : root) {

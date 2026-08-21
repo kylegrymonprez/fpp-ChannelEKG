@@ -71,13 +71,17 @@
 	stroke: var(--bs-border-color, #ccc);
 	stroke-width: 1px;
 }
+#ekgTabsNav {
+	margin-top: 12px;
+	margin-bottom: 0;
+}
 </style>
 
 <div id="global" class="settings">
 <div class="container-fluid settingsTable settingsGroupTable">
 
 	<div class="row"><div class="col-md">
-		Pick up to 16 raw output channels to monitor. Choose a configured model to add its first
+		Pick up to 128 raw output channels to monitor. Choose a configured model to add its
 		channels directly, or enter a raw channel number manually. Changes apply immediately.
 	</div></div>
 
@@ -90,7 +94,7 @@
 		</div>
 		<div class="col-auto" id="ekgModelInfo" style="display:none;"></div>
 		<div class="col-auto" id="ekgModelAddRow" style="display:none;">
-			<button class="btn btn-primary btn-sm" onclick="ekgAddModelChannels()">Add first <span id="ekgModelAddCount"></span> channels</button>
+			<button class="btn btn-primary btn-sm" onclick="ekgAddModelChannels()">Add all <span id="ekgModelAddCount"></span> channels</button>
 		</div>
 		<div class="col-auto">
 			<button class="btn btn-outline-danger btn-sm" onclick="ekgRemoveAllChannels()">Remove All</button>
@@ -118,6 +122,7 @@
 
 <hr>
 
+<ul class="nav nav-pills pageContent-tabs" id="ekgTabsNav" role="tablist" style="display:none;"></ul>
 <div id="ekgLiveGrid"></div>
 
 </div>
@@ -130,7 +135,11 @@ var ekgHistory = {};     // channel -> [[t,v], ...]
 var ekgLastSince = 0;
 var ekgPollTimer = null;
 var EKG_HISTORY_MS = 30000;
-var EKG_MAX_CHANNELS = 16;
+var EKG_MAX_CHANNELS = 128;
+// Matches DMX_CHANNELS_PER_TAB in FPP's own testing.php (Display Testing >
+// Channel Fader), so the two pages group channels the same way.
+var EKG_CHANNELS_PER_TAB = 16;
+var ekgActiveTab = 0;
 // "Active" means a controller is actually sending data to the channel right
 // now - a locally playing sequence/playlist, or bridged E1.31/Artnet/DDP
 // input from another controller - not just "the value happens to be
@@ -171,6 +180,174 @@ function ekgFindModel(name) {
 	return null;
 }
 
+// Is this model a sparse, non-contiguous overlay rather than a plain
+// contiguous block of channels? xLights submodels and model groups are
+// exported to FPP as Pixel Overlay Models of Type "Sub" (see
+// docs/PixelOverlaySubModels.md in the FPP source) - a subset of a parent's
+// (or several models') channels scattered via a row/column "Grid" string with
+// blank cells for the gaps. FPP recomputes such a model's own
+// StartChannel/ChannelCount to describe its internal scratch buffer, not real
+// output channels, so those two fields can't be used to find its channels.
+function ekgIsGappedModel(m) {
+	return m.Type === 'Sub' && (m.SubType === 'grid' || m.SubType === 'channelgrid');
+}
+
+// Best-effort inference for a "chained" convenience model - an xLights model
+// whose strings each point at a different node of ANOTHER model via
+// "@Model:Node" (e.g. a "Pan" model built from the pan channel of several
+// separate moving-head fixtures). xLights currently exports these to FPP as a
+// plain contiguous Channel model: model-overlays.json's StartChannel is only
+// the FIRST string's resolved channel, and every other string is wrongly
+// assumed to be sequential from there (xLights/src-core/controllers/FPP.cpp,
+// FPP::CreateModelMemoryMap(), uses model->ModelStartChannel but never
+// model->NodeStartChannel(i) per string - the per-node resolver it already
+// uses correctly elsewhere). There's no field marking this, so it's inferred
+// from a purely data-driven signal instead: the naive contiguous range
+// collides with another model's real range, which a correctly contiguous
+// model's channels never should. When that happens, look for other models
+// sharing this model's exact "shape" (ChannelCount/StringCount/
+// StrandsPerString/ChannelCountPerNode) - almost certainly repeated instances
+// of the same kind of fixture - and assume each of this model's strings
+// aliases the same relative offset into the Nth such fixture, in ascending
+// channel order. Returns null when the signal isn't there (nothing to infer,
+// or not enough same-shaped fixtures to resolve against).
+function ekgInferChainedChannels(m, allModels) {
+	var count = parseInt(m.ChannelCount, 10) || 0;
+	var start = parseInt(m.StartChannel, 10) || 1;
+	var end = start + count - 1;
+	var stringCount = parseInt(m.StringCount, 10) || 1;
+	if (count <= 0 || stringCount <= 1) return null;
+
+	function rangeOf(mm) {
+		if (ekgIsGappedModel(mm)) return null; // its Start/Count aren't real addresses
+		var s = parseInt(mm.StartChannel, 10) || 1;
+		var c = parseInt(mm.ChannelCount, 10) || 0;
+		return c > 0 ? { start: s, end: s + c - 1 } : null;
+	}
+
+	// Host = another model whose range fully CONTAINS m's entire declared
+	// range (not just overlaps it), picking the widest such match if more
+	// than one qualifies. Containment, not overlap, is the signal: a real
+	// fixture's own small per-channel alias models (e.g. a single-string
+	// "MH_Pan-2" pointing at one of MH1's channels) are legitimately nested
+	// inside it, and MH1 itself overlaps every one of them - but MH1's own
+	// full range is never a strict subset of anything else, so it correctly
+	// never becomes a "host" search target below and is left alone as a
+	// normal contiguous model. A merely-overlapping (not fully containing)
+	// model doesn't qualify, which is what keeps this from misfiring on it.
+	var host = null, hostRange = null, hostCount = -1;
+	for (var h = 0; h < allModels.length; h++) {
+		if (allModels[h] === m) continue;
+		var hr = rangeOf(allModels[h]);
+		if (hr && hr.start <= start && end <= hr.end) {
+			var hc = parseInt(allModels[h].ChannelCount, 10) || 0;
+			if (hc > hostCount) { host = allModels[h]; hostRange = hr; hostCount = hc; }
+		}
+	}
+	if (!host) return null; // no fully-containing model found - treat as genuinely contiguous
+
+	var offset = start - hostRange.start;
+	var perString = Math.round(count / stringCount) || 1;
+
+	function shapeKey(mm) {
+		return [mm.ChannelCount, mm.StringCount, mm.StrandsPerString, mm.ChannelCountPerNode]
+			.map(function (v) { return parseInt(v, 10) || 0; }).join(',');
+	}
+	var hostShape = shapeKey(host);
+	var family = [];
+	for (var f = 0; f < allModels.length; f++) {
+		if (!ekgIsGappedModel(allModels[f]) && shapeKey(allModels[f]) === hostShape) family.push(allModels[f]);
+	}
+	family.sort(function (a, b) { return (parseInt(a.StartChannel, 10) || 0) - (parseInt(b.StartChannel, 10) || 0); });
+
+	var channels = [];
+	for (var s = 0; s < stringCount && s < family.length; s++) {
+		var base = (parseInt(family[s].StartChannel, 10) || 1) + offset;
+		for (var k = 0; k < perString; k++) {
+			channels.push(base + k);
+		}
+	}
+	return channels.length ? channels : null;
+}
+
+// How ekgModelChannels() resolved this model's channels - for the info text.
+function ekgModelChannelsKind(m) {
+	if (ekgIsGappedModel(m)) return 'sub';
+	if (ekgInferChainedChannels(m, ekgModels)) return 'inferred';
+	return 'contiguous';
+}
+
+// Returns a model's real, absolute 1-based output channels in on-screen
+// (row-major Grid) order. For an ordinary contiguous model that's just
+// StartChannel..StartChannel+ChannelCount-1; for a gapped overlay model (see
+// ekgIsGappedModel) it walks the Grid instead, the same way FPP's own
+// PixelOverlayModelSub::buildGrid()/buildChannelGrid() do, so gaps are
+// skipped and the channels chosen are the model's actual ones. Failing that,
+// it falls back to ekgInferChainedChannels()'s best-effort guess before
+// finally assuming a plain contiguous range.
+function ekgModelChannels(m) {
+	if (ekgIsGappedModel(m)) {
+		return ekgGappedModelChannels(m);
+	}
+	var inferred = ekgInferChainedChannels(m, ekgModels);
+	if (inferred) {
+		return inferred;
+	}
+	var startChannel = parseInt(m.StartChannel, 10) || 1;
+	var channelCount = parseInt(m.ChannelCount, 10) || 0;
+	var channels = [];
+	for (var i = 0; i < channelCount; i++) {
+		channels.push(startChannel + i);
+	}
+	return channels;
+}
+
+// Grid is rows separated by ';', columns by ',', with an empty cell ("") as a
+// hole/gap that contributes no channel. What a populated cell holds depends
+// on SubType:
+//   - "grid" (an xLights submodel): the cell is a PARENT node number, and
+//     channel = (ParentStartChannel - 1) + (node - 1) * ChannelCountPerNode.
+//   - "channelgrid" (an xLights model group): the cell is already one or more
+//     '&'-separated absolute 1-based start channels (member pixels binned
+//     into that cell).
+// Either way, each resolved start channel expands to ChannelCountPerNode
+// consecutive channels (R,G,B[,W]) and duplicates (a group can bin more than
+// one member pixel into the same channel) are dropped.
+function ekgGappedModelChannels(m) {
+	var cpn = parseInt(m.ChannelCountPerNode, 10) || 3;
+	var parentStart0 = (parseInt(m.ParentStartChannel, 10) || 1) - 1;
+	var rows = String(m.Grid || '').split(';');
+	var channels = [];
+	var seen = {};
+	function addNode(base0) {
+		for (var k = 0; k < cpn; k++) {
+			var ch = base0 + k + 1;
+			if (!seen[ch]) {
+				seen[ch] = true;
+				channels.push(ch);
+			}
+		}
+	}
+	for (var y = 0; y < rows.length; y++) {
+		var cells = rows[y].split(',');
+		for (var x = 0; x < cells.length; x++) {
+			var cell = cells[x];
+			if (!cell) continue; // hole - no pixel at this grid position
+			if (m.SubType === 'channelgrid') {
+				var parts = cell.split('&');
+				for (var p = 0; p < parts.length; p++) {
+					var abs1 = parseInt(parts[p], 10);
+					if (abs1 > 0) addNode(abs1 - 1);
+				}
+			} else {
+				var node = parseInt(cell, 10);
+				if (node > 0) addNode(parentStart0 + (node - 1) * cpn);
+			}
+		}
+	}
+	return channels;
+}
+
 function ekgModelChanged() {
 	var name = document.getElementById('ekgModelSelect').value;
 	var infoEl = document.getElementById('ekgModelInfo');
@@ -185,28 +362,37 @@ function ekgModelChanged() {
 	if (!m) return;
 	ekgSelectedModel = m;
 
-	var startChannel = parseInt(m.StartChannel, 10) || 1;
-	var channelCount = parseInt(m.ChannelCount, 10) || 0;
-	var endChannel = startChannel + channelCount - 1;
-	infoEl.textContent = channelCount + ' raw channels (Ch ' + startChannel + '-' + endChannel + ')';
+	var channels = ekgModelChannels(m);
+	var kind = ekgModelChannelsKind(m);
+	if (kind === 'sub') {
+		infoEl.textContent = channels.length + ' real channels (non-contiguous overlay model)';
+	} else if (kind === 'inferred') {
+		infoEl.textContent = channels.length + ' real channels, guessed from other matching fixtures ' +
+			'(non-contiguous - declared as ' + (parseInt(m.StringCount, 10) || 1) + ' strings)';
+	} else {
+		var startChannel = parseInt(m.StartChannel, 10) || 1;
+		infoEl.textContent = channels.length + ' raw channels (Ch ' + startChannel + '-' + (startChannel + channels.length - 1) + ')';
+	}
 	infoEl.style.display = '';
 
-	var addCount = Math.min(16, channelCount);
+	var addCount = channels.length;
 	document.getElementById('ekgModelAddCount').textContent = addCount;
 	addRow.style.display = '';
 }
 
-// Bulk-adds the first min(16, model channel count) RAW output channels of the
-// selected model - sequential from StartChannel, no pixel/color grouping.
+// Bulk-adds every real output channel of the selected model (up to the
+// EKG_MAX_CHANNELS overall cap) - honoring gaps for non-contiguous overlay
+// models (see ekgModelChannels) instead of assuming StartChannel..
+// StartChannel+N. A model with more channels than fit on one tab just spills
+// onto however many tabs it needs (see EKG_CHANNELS_PER_TAB).
 function ekgAddModelChannels() {
 	if (!ekgSelectedModel) return;
-	var startChannel = parseInt(ekgSelectedModel.StartChannel, 10) || 1;
-	var channelCount = parseInt(ekgSelectedModel.ChannelCount, 10) || 0;
-	var toAdd = Math.min(16, channelCount);
+	var channels = ekgModelChannels(ekgSelectedModel);
+	var toAdd = channels.length;
 	var added = 0;
 	for (var i = 0; i < toAdd; i++) {
 		if (ekgPicked.length >= EKG_MAX_CHANNELS) break;
-		var channel = startChannel + i;
+		var channel = channels[i];
 		var exists = false;
 		for (var j = 0; j < ekgPicked.length; j++) {
 			if (ekgPicked[j].channel === channel) { exists = true; break; }
@@ -215,14 +401,19 @@ function ekgAddModelChannels() {
 		ekgPicked.push({ channel: channel, label: ekgSelectedModel.Name + ' Ch' + (i + 1) });
 		added++;
 	}
+	// Jump to the tab holding what was just added, so it's visible right away
+	// instead of silently landing on a tab the user isn't looking at.
+	if (added > 0) ekgActiveTab = Math.floor((ekgPicked.length - 1) / EKG_CHANNELS_PER_TAB);
 	ekgSave();
 	if (added < toAdd) {
-		alert('Added ' + added + ' of ' + toAdd + ' channels - the 16 channel monitoring limit was reached or some were already in the list.');
+		alert('Added ' + added + ' of ' + toAdd + ' channels - the ' + EKG_MAX_CHANNELS +
+			' channel monitoring limit was reached or some were already in the list.');
 	}
 }
 
 function ekgRemoveAllChannels() {
 	ekgPicked = [];
+	ekgActiveTab = 0;
 	ekgSave();
 }
 
@@ -244,6 +435,7 @@ function ekgAddManualChannel() {
 	}
 	var label = document.getElementById('ekgLabel').value || ('Channel ' + raw);
 	ekgPicked.push({ channel: raw, label: label });
+	ekgActiveTab = Math.floor((ekgPicked.length - 1) / EKG_CHANNELS_PER_TAB);
 	document.getElementById('ekgManualChannel').value = '';
 	document.getElementById('ekgLabel').value = '';
 	ekgSave();
@@ -286,9 +478,51 @@ function ekgLoadCurrentConfig() {
 	});
 }
 
-// Rebuilds the live grid from ekgPicked. History is kept for channels that
-// are still present (so adding/removing one card doesn't interrupt the
-// others' graphs) and dropped only for channels no longer in the list.
+// Splits ekgPicked into pages of EKG_CHANNELS_PER_TAB, the same grouping
+// FPP's own Display Testing > Channel Fader tab uses for its DMX sliders.
+function ekgTabCount() {
+	return Math.max(1, Math.ceil(ekgPicked.length / EKG_CHANNELS_PER_TAB));
+}
+
+// Rebuilds the tab nav from ekgPicked/ekgActiveTab. Hidden entirely when
+// everything fits on one tab, since there's nothing to switch between.
+function ekgRenderTabsNav() {
+	var nav = document.getElementById('ekgTabsNav');
+	var numTabs = ekgTabCount();
+	if (ekgPicked.length <= EKG_CHANNELS_PER_TAB) {
+		nav.style.display = 'none';
+		nav.innerHTML = '';
+		return;
+	}
+	if (ekgActiveTab >= numTabs) ekgActiveTab = numTabs - 1;
+	if (ekgActiveTab < 0) ekgActiveTab = 0;
+
+	var html = '';
+	for (var t = 0; t < numTabs; t++) {
+		var first = t * EKG_CHANNELS_PER_TAB + 1;
+		var last = Math.min(first + EKG_CHANNELS_PER_TAB - 1, ekgPicked.length);
+		var active = (t === ekgActiveTab) ? ' active' : '';
+		html += '<li class="nav-item"><a href="#" class="nav-link' + active + '" role="tab" ' +
+			'aria-selected="' + (t === ekgActiveTab ? 'true' : 'false') + '" ' +
+			'onclick="ekgSelectTab(' + t + '); return false;">' + first + '-' + last + '</a></li>';
+	}
+	nav.innerHTML = html;
+	nav.style.display = '';
+}
+
+// Switches the active tab. Rebuilding through ekgRenderLiveGrid() tears down
+// the previous tab's cards/charts and builds the new tab's from scratch,
+// rather than pre-building every tab and toggling visibility.
+function ekgSelectTab(t) {
+	ekgActiveTab = t;
+	ekgRenderLiveGrid();
+}
+
+// Rebuilds the tab nav and the live grid for the active tab only, from
+// ekgPicked. History is kept for every channel still in ekgPicked - including
+// ones on other tabs, so switching back to a tab resumes its graphs rather
+// than restarting them - and dropped only for channels no longer in the list
+// at all.
 function ekgRenderLiveGrid() {
 	var grid = document.getElementById('ekgLiveGrid');
 	var stillPicked = {};
@@ -299,8 +533,13 @@ function ekgRenderLiveGrid() {
 		if (!stillPicked[ch]) delete ekgHistory[ch];
 	}
 
+	ekgRenderTabsNav();
+
+	var first = ekgActiveTab * EKG_CHANNELS_PER_TAB;
+	var last = Math.min(first + EKG_CHANNELS_PER_TAB, ekgPicked.length);
+
 	grid.innerHTML = '';
-	for (var i = 0; i < ekgPicked.length; i++) {
+	for (var i = first; i < last; i++) {
 		var c = ekgPicked[i];
 		if (!ekgHistory[c.channel]) ekgHistory[c.channel] = [];
 		var safeLabel = $('<div>').text(c.label).html();

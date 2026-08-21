@@ -3,7 +3,7 @@
         "/ChannelEKG/config": {
             "get": {
                 "summary": "Get the currently monitored channels",
-                "description": "Returns the list of channels currently being monitored, up to 16 entries.",
+                "description": "Returns the list of channels currently being monitored, up to 128 entries.",
                 "responses": {
                     "200": {
                         "description": "Array of monitored channels",
@@ -27,7 +27,7 @@
             },
             "post": {
                 "summary": "Set the monitored channels",
-                "description": "Replaces the list of monitored channels (max 16) and persists it to disk.",
+                "description": "Replaces the list of monitored channels (max 128) and persists it to disk.",
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -41,7 +41,7 @@
                                         "label": { "type": "string" }
                                     }
                                 },
-                                "maxItems": 16
+                                "maxItems": 128
                             }
                         }
                     }
