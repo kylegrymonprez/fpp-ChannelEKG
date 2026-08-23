@@ -2,6 +2,8 @@
 
 # fpp-ChannelEKG uninstall script
 
-# No restartFlag: the Plugin Manager unloads the plugin through fppd before it
-# removes these files, so the uninstall has already taken effect by the time
-# this runs.
+# This branch targets FPP 8.x/9.x's libhttpserver plugin API, which has no
+# hot-unload contract - fppd needs an explicit restart to actually drop this
+# plugin after these files are removed.
+source ${FPPDIR}/scripts/common
+setSetting restartFlag 1

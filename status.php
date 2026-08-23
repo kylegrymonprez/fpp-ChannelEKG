@@ -18,14 +18,14 @@
 	right: 4px;
 	border: none;
 	background: transparent;
-	color: #c0392b;
+	color: var(--bs-danger, #c0392b);
 	font-size: 1.2em;
 	line-height: 1;
 	padding: 2px 6px;
 	cursor: pointer;
 }
 .ekgCard .ekgRemoveBtn:hover {
-	color: #e74c3c;
+	color: var(--bs-danger-text-emphasis, #e74c3c);
 }
 .ekgCard .ekgLabel {
 	font-weight: bold;
@@ -43,14 +43,14 @@
 	width: 9px;
 	height: 9px;
 	border-radius: 50%;
-	border: 2px solid #888;
+	border: 2px solid var(--bs-secondary, #888);
 	background: transparent;
 	margin-right: 5px;
 	vertical-align: middle;
 }
 .ekgIndicator.ekgActive {
-	border-color: #2ecc71;
-	background: #2ecc71;
+	border-color: var(--bs-success, #2ecc71);
+	background: var(--bs-success, #2ecc71);
 }
 .ekgCard .ekgValue {
 	font-size: 1.8em;
@@ -64,7 +64,7 @@
 }
 .ekgCard .ekgLine {
 	fill: none;
-	stroke: #2e86de;
+	stroke: var(--bs-primary, #2e86de);
 	stroke-width: 1.5px;
 }
 .ekgCard .ekgAxis {
