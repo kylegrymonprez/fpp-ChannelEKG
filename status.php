@@ -71,13 +71,17 @@
 	stroke: var(--bs-border-color, #ccc);
 	stroke-width: 1px;
 }
+#ekgTabsNav {
+	margin-top: 12px;
+	margin-bottom: 0;
+}
 </style>
 
 <div id="global" class="settings">
 <div class="container-fluid settingsTable settingsGroupTable">
 
 	<div class="row"><div class="col-md">
-		Pick up to 16 raw output channels to monitor. Choose a configured model to add its first
+		Pick up to 128 raw output channels to monitor. Choose a configured model to add its
 		channels directly, or enter a raw channel number manually. Changes apply immediately.
 	</div></div>
 
@@ -90,7 +94,7 @@
 		</div>
 		<div class="col-auto" id="ekgModelInfo" style="display:none;"></div>
 		<div class="col-auto" id="ekgModelAddRow" style="display:none;">
-			<button class="btn btn-primary btn-sm" onclick="ekgAddModelChannels()">Add first <span id="ekgModelAddCount"></span> channels</button>
+			<button class="btn btn-primary btn-sm" onclick="ekgAddModelChannels()">Add all <span id="ekgModelAddCount"></span> channels</button>
 		</div>
 		<div class="col-auto">
 			<button class="btn btn-outline-danger btn-sm" onclick="ekgRemoveAllChannels()">Remove All</button>
@@ -118,6 +122,7 @@
 
 <hr>
 
+<ul class="nav nav-pills pageContent-tabs" id="ekgTabsNav" role="tablist" style="display:none;"></ul>
 <div id="ekgLiveGrid"></div>
 
 </div>
@@ -130,7 +135,11 @@ var ekgHistory = {};     // channel -> [[t,v], ...]
 var ekgLastSince = 0;
 var ekgPollTimer = null;
 var EKG_HISTORY_MS = 30000;
-var EKG_MAX_CHANNELS = 16;
+var EKG_MAX_CHANNELS = 128;
+// Matches DMX_CHANNELS_PER_TAB in FPP's own testing.php (Display Testing >
+// Channel Fader), so the two pages group channels the same way.
+var EKG_CHANNELS_PER_TAB = 16;
+var ekgActiveTab = 0;
 // "Active" means a controller is actually sending data to the channel right
 // now - a locally playing sequence/playlist, or bridged E1.31/Artnet/DDP
 // input from another controller - not just "the value happens to be
@@ -191,18 +200,20 @@ function ekgModelChanged() {
 	infoEl.textContent = channelCount + ' raw channels (Ch ' + startChannel + '-' + endChannel + ')';
 	infoEl.style.display = '';
 
-	var addCount = Math.min(16, channelCount);
+	var addCount = channelCount;
 	document.getElementById('ekgModelAddCount').textContent = addCount;
 	addRow.style.display = '';
 }
 
-// Bulk-adds the first min(16, model channel count) RAW output channels of the
-// selected model - sequential from StartChannel, no pixel/color grouping.
+// Bulk-adds every RAW output channel of the selected model (up to the
+// EKG_MAX_CHANNELS overall cap) - sequential from StartChannel, no
+// pixel/color grouping. A model with more channels than fit on one tab just
+// spills onto however many tabs it needs (see EKG_CHANNELS_PER_TAB).
 function ekgAddModelChannels() {
 	if (!ekgSelectedModel) return;
 	var startChannel = parseInt(ekgSelectedModel.StartChannel, 10) || 1;
 	var channelCount = parseInt(ekgSelectedModel.ChannelCount, 10) || 0;
-	var toAdd = Math.min(16, channelCount);
+	var toAdd = channelCount;
 	var added = 0;
 	for (var i = 0; i < toAdd; i++) {
 		if (ekgPicked.length >= EKG_MAX_CHANNELS) break;
@@ -215,14 +226,19 @@ function ekgAddModelChannels() {
 		ekgPicked.push({ channel: channel, label: ekgSelectedModel.Name + ' Ch' + (i + 1) });
 		added++;
 	}
+	// Jump to the tab holding what was just added, so it's visible right away
+	// instead of silently landing on a tab the user isn't looking at.
+	if (added > 0) ekgActiveTab = Math.floor((ekgPicked.length - 1) / EKG_CHANNELS_PER_TAB);
 	ekgSave();
 	if (added < toAdd) {
-		alert('Added ' + added + ' of ' + toAdd + ' channels - the 16 channel monitoring limit was reached or some were already in the list.');
+		alert('Added ' + added + ' of ' + toAdd + ' channels - the ' + EKG_MAX_CHANNELS +
+			' channel monitoring limit was reached or some were already in the list.');
 	}
 }
 
 function ekgRemoveAllChannels() {
 	ekgPicked = [];
+	ekgActiveTab = 0;
 	ekgSave();
 }
 
@@ -244,6 +260,7 @@ function ekgAddManualChannel() {
 	}
 	var label = document.getElementById('ekgLabel').value || ('Channel ' + raw);
 	ekgPicked.push({ channel: raw, label: label });
+	ekgActiveTab = Math.floor((ekgPicked.length - 1) / EKG_CHANNELS_PER_TAB);
 	document.getElementById('ekgManualChannel').value = '';
 	document.getElementById('ekgLabel').value = '';
 	ekgSave();
@@ -286,9 +303,51 @@ function ekgLoadCurrentConfig() {
 	});
 }
 
-// Rebuilds the live grid from ekgPicked. History is kept for channels that
-// are still present (so adding/removing one card doesn't interrupt the
-// others' graphs) and dropped only for channels no longer in the list.
+// Splits ekgPicked into pages of EKG_CHANNELS_PER_TAB, the same grouping
+// FPP's own Display Testing > Channel Fader tab uses for its DMX sliders.
+function ekgTabCount() {
+	return Math.max(1, Math.ceil(ekgPicked.length / EKG_CHANNELS_PER_TAB));
+}
+
+// Rebuilds the tab nav from ekgPicked/ekgActiveTab. Hidden entirely when
+// everything fits on one tab, since there's nothing to switch between.
+function ekgRenderTabsNav() {
+	var nav = document.getElementById('ekgTabsNav');
+	var numTabs = ekgTabCount();
+	if (ekgPicked.length <= EKG_CHANNELS_PER_TAB) {
+		nav.style.display = 'none';
+		nav.innerHTML = '';
+		return;
+	}
+	if (ekgActiveTab >= numTabs) ekgActiveTab = numTabs - 1;
+	if (ekgActiveTab < 0) ekgActiveTab = 0;
+
+	var html = '';
+	for (var t = 0; t < numTabs; t++) {
+		var first = t * EKG_CHANNELS_PER_TAB + 1;
+		var last = Math.min(first + EKG_CHANNELS_PER_TAB - 1, ekgPicked.length);
+		var active = (t === ekgActiveTab) ? ' active' : '';
+		html += '<li class="nav-item"><a href="#" class="nav-link' + active + '" role="tab" ' +
+			'aria-selected="' + (t === ekgActiveTab ? 'true' : 'false') + '" ' +
+			'onclick="ekgSelectTab(' + t + '); return false;">' + first + '-' + last + '</a></li>';
+	}
+	nav.innerHTML = html;
+	nav.style.display = '';
+}
+
+// Switches the active tab. Rebuilding through ekgRenderLiveGrid() tears down
+// the previous tab's cards/charts and builds the new tab's from scratch,
+// rather than pre-building every tab and toggling visibility.
+function ekgSelectTab(t) {
+	ekgActiveTab = t;
+	ekgRenderLiveGrid();
+}
+
+// Rebuilds the tab nav and the live grid for the active tab only, from
+// ekgPicked. History is kept for every channel still in ekgPicked - including
+// ones on other tabs, so switching back to a tab resumes its graphs rather
+// than restarting them - and dropped only for channels no longer in the list
+// at all.
 function ekgRenderLiveGrid() {
 	var grid = document.getElementById('ekgLiveGrid');
 	var stillPicked = {};
@@ -299,8 +358,13 @@ function ekgRenderLiveGrid() {
 		if (!stillPicked[ch]) delete ekgHistory[ch];
 	}
 
+	ekgRenderTabsNav();
+
+	var first = ekgActiveTab * EKG_CHANNELS_PER_TAB;
+	var last = Math.min(first + EKG_CHANNELS_PER_TAB, ekgPicked.length);
+
 	grid.innerHTML = '';
-	for (var i = 0; i < ekgPicked.length; i++) {
+	for (var i = first; i < last; i++) {
 		var c = ekgPicked[i];
 		if (!ekgHistory[c.channel]) ekgHistory[c.channel] = [];
 		var safeLabel = $('<div>').text(c.label).html();
