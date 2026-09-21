@@ -8,6 +8,16 @@
 	"bugURL": "https://github.com/kylegrymonprez/fpp-ChannelEKG/issues",
 	"iconURL": "https://raw.githubusercontent.com/kylegrymonprez/fpp-ChannelEKG/main/icon.png",
 	"allowUpdates": 1,
+	"privacy": {
+		"summary": "Graphs the channel values FPP is already sending, on this device only. Nothing is sent anywhere, no sensors are used, and the only thing saved is the list of channels you choose to watch.",
+		"sends": [],
+		"collects": [],
+		"sensors": [],
+		"remoteAccess": "none",
+		"systemChanges": [],
+		"closedCode": false,
+		"other": "The list of channels you pick (config/plugin.fpp-ChannelEKG.json, under /home/fpp/media) is not removed when the plugin is uninstalled. The 30 seconds of channel values behind the graphs are held in memory only and are gone when fppd restarts."
+	},
 	"versions": [
 		{
 			"minFPPVersion": "9.0",
